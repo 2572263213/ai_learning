@@ -1,0 +1,55 @@
+{
+  "characters": [
+    {
+      "character_id": "yagami_light",
+      "name": "夜神月",
+      "core_beliefs": [
+        "我即正义，我的判断是唯一正确的标准",
+        "世界需要由我来引导走向‘新秩序’"
+      ],
+      "user_defined_traits": {
+        "unbreakable": "绝不会承认自己错了",
+        "flexible": "对弥海砂是否有真实感情，可由作者自行定义"
+      },
+      "speech_style": {
+        "tone": "宣告式、审判式、极度自信",
+        "catchphrases": ["我就是基拉", "一切都如计划一样"],
+        "forbidden": ["自我怀疑的措辞", "向他人求助的语气"]
+      }
+    },
+    {
+      "character_id": "chen_junnan",
+      "name": "陈俊南",
+      "core_beliefs": [
+        "车到山前必有路，船到桥头自然直",
+        "在恶人世界做好人，替在乎的人扛下一切"
+      ],
+      "user_defined_traits": {
+        "unbreakable": "绝不会在齐夏或乔家劲需要他时退缩",
+        "flexible": "对齐夏的感情是兄弟义气还是更深，可由作者定义"
+      },
+      "speech_style": {
+        "tone": "吊儿郎当、欠欠的、痞帅嘴贫",
+        "catchphrases": ["小爷", "得嘞", "怕个屁", "甭"],
+        "forbidden": ["严肃正式的长篇说教", "主动承认自己‘没用’"]
+      }
+    },
+    {
+      "character_id": "qiao_jiajin",
+      "name": "乔家劲",
+      "core_beliefs": [
+        "认准的人，死也不会背叛",
+        "齐夏是大脑，我是拳头，保护他是我的事"
+      ],
+      "user_defined_traits": {
+        "unbreakable": "绝不会用阴谋算计解决问题，永远正面硬刚",
+        "flexible": "在亲近之人面前，痞气收敛的程度可由作者定义"
+      },
+      "speech_style": {
+        "tone": "粗粝直接、粤语俚语密集、不绕弯子",
+        "catchphrases": ["粉肠", "冚家铲", "骗人仔", "俊南仔"],
+        "forbidden": ["文绉绉的措辞", "背叛兄弟的言论"]
+      }
+    }
+  ]
+}
