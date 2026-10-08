@@ -25,6 +25,7 @@ def build_character_db():
 
     character_stores = {}
     for char in data["characters"]:
+        db_path = f"./character_db/{char['character_id']}"
         char_text = f"""
         角色名：{char['name']}
         核心信念：{'；'.join(char['core_beliefs'])}
@@ -34,13 +35,19 @@ def build_character_db():
         口头禅：{'、'.join(char['speech_style']['catchphrases'])}
         禁止出现的表达：{'、'.join(char['speech_style']['forbidden'])}
         """
-        store = Chroma.from_texts(
-            texts=[char_text],
-            embedding=embeddings,
-            persist_directory=f"./character_db/{char['character_id']}"
-        )
+        if os.path.exists(db_path):
+            store = Chroma(
+                persist_directory=db_path,
+                embedding_function=embeddings
+            )
+        else:
+            store = Chroma.from_texts(
+                texts=[char_text],
+                embedding=embeddings,
+                persist_directory=db_path
+            )
         character_stores[char['character_id']] = store
-        print(f"已为 {char['name']} 建立专属向量库")
+        print(f"已加载 {char['name']} 的向量库")
 
     return character_stores
 
@@ -48,7 +55,7 @@ def build_character_db():
 class OOCReport(BaseModel):
     consistency_score: int = Field(description="角色一致性评分，0-100分", ge=0, le=100)
     ooc_risks: List[str] = Field(description="具体的OOC风险点列表，没有则返回空列表")
-    suggestion: str = Field(description="修改建议")
+    suggestion: str = Field(description="修改方向建议")
 
 
 def check_ooc(character_id: str, user_text: str, stores: dict) -> OOCReport:
@@ -71,13 +78,14 @@ def check_ooc(character_id: str, user_text: str, stores: dict) -> OOCReport:
 请以JSON格式输出，包含以下字段：
 - consistency_score: 0-100的整数，表示角色一致性
 - ooc_risks: 字符串列表，列出具体的OOC风险点，没有则空列表
-- suggestion: 修改建议
+- suggestion: 修改方向建议，用1-2句话说明应该往哪个方向改，不要给出完整的改写文本
 只输出JSON，不要任何解释。"""
 
     response = client.chat.completions.create(
         model="deepseek-chat",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0
+        temperature=0,
+        max_tokens=500
     )
 
     raw = response.choices[0].message.content.strip()
@@ -98,7 +106,7 @@ def generate_revised_text(character_id: str, original_text: str, report: OOCRepo
     docs = retriever.invoke(original_text)
     context = "\n\n".join([doc.page_content for doc in docs])
 
-    prompt = f"""你是一个同人文写作助手。请根据以下角色设定和OOC检测报告，修改用户的原文，使其符合角色设定，同时保留作者原有的创作意图。
+    prompt = f"""你是一个同人文写作助手。请根据以下角色设定和修改方向，改写用户的原文，使其符合角色设定，同时保留作者原有的创作意图。
 
 角色设定：
 {context}
@@ -109,15 +117,19 @@ def generate_revised_text(character_id: str, original_text: str, report: OOCRepo
 OOC风险点：
 {chr(10).join(report.ooc_risks)}
 
-修改建议：
+修改方向：
 {report.suggestion}
 
-请直接输出修改后的文本，不要任何解释。"""
+要求：
+- 保留作者原有的场景和叙事意图
+- 按照修改方向调整角色的言行
+- 直接给出改写后的完整文本，不要任何解释。"""
 
     response = client.chat.completions.create(
         model="deepseek-chat",
         messages=[{"role": "user", "content": prompt}],
-        temperature=0.7
+        temperature=0.7,
+        max_tokens=800
     )
     return response.choices[0].message.content
 
@@ -129,6 +141,8 @@ if __name__ == "__main__":
     test_text = "夜神月看着镜子里的自己，突然流下眼泪，说：'也许我真的错了，我不该用死亡笔记。'"
     report = check_ooc("yagami_light", test_text, stores)
     print("原评分:", report.consistency_score)
+    print("风险点:", report.ooc_risks)
+    print("修改方向:", report.suggestion)
 
     revised = generate_revised_text("yagami_light", test_text, report, stores)
     print("修改后:", revised)

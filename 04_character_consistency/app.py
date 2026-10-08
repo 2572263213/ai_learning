@@ -57,7 +57,7 @@ if "last_report" in st.session_state:
             st.warning(risk)
 
     # 修改建议（固定高度+滚动条）
-    st.subheader("修改建议")
+    st.subheader("问题诊断与修改方向")
     st.text_area("修改建议", report.suggestion, height=120, label_visibility="collapsed")
 
     # ===== 生成修改文本按钮（独立于检测按钮）=====
@@ -73,7 +73,7 @@ if "last_report" in st.session_state:
 
 # ===== 显示修改前后对比 =====
 if "revised_text" in st.session_state:
-    st.subheader("修改前后对比")
+    st.subheader("参考改写版本与对比")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown("**原文**")
