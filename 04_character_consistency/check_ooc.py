@@ -28,20 +28,40 @@ def build_character_db():
     character_stores = {}
     for char in data["characters"]:
         db_path = f"./character_db/{char['character_id']}"
+
+        # 安全处理所有可能为 None 的字段
+        core_beliefs = char.get('core_beliefs') or []
+        if not isinstance(core_beliefs, list):
+            core_beliefs = [core_beliefs]
+
+        traits = char.get('user_defined_traits', {}) or {}
+        speech = char.get('speech_style', {}) or {}
+
+        unbreakable = traits.get('unbreakable') or "（未定义）"
+        flexible = traits.get('flexible') or "（未定义）"
+        tone = speech.get('tone') or "（未定义）"
+
+        catchphrases = speech.get('catchphrases') or []
+        if not isinstance(catchphrases, list):
+            catchphrases = [catchphrases]
+
+        forbidden = speech.get('forbidden') or []
+        if not isinstance(forbidden, list):
+            forbidden = [forbidden]
+
         segments = [
-            {"text": f"核心信念：{'；'.join(char['core_beliefs'])}", "source": "核心信念"},
-            {"text": f"绝对底线：{char['user_defined_traits']['unbreakable']}", "source": "绝对底线"},
-            {"text": f"灵活空间：{char['user_defined_traits']['flexible']}", "source": "灵活空间"},
-            {"text": f"说话风格：{char['speech_style']['tone']}", "source": "说话风格"},
-            {"text": f"口头禅：{'、'.join(char['speech_style']['catchphrases'])}", "source": "口头禅"},
-            {"text": f"禁止表达：{'、'.join(char['speech_style']['forbidden'])}", "source": "禁止表达"},
+            {"text": f"核心信念：{'；'.join(core_beliefs)}", "source": "核心信念"},
+            {"text": f"绝对底线：{unbreakable}", "source": "绝对底线"},
+            {"text": f"灵活空间：{flexible}", "source": "灵活空间"},
+            {"text": f"说话风格：{tone}", "source": "说话风格"},
+            {"text": f"口头禅：{'、'.join(catchphrases)}", "source": "口头禅"},
+            {"text": f"禁止表达：{'、'.join(forbidden)}", "source": "禁止表达"},
         ]
 
         # 建向量库
         text_list = [seg["text"] for seg in segments]
-
         if os.path.exists(db_path):
-            store = Chroma.from_texts(texts=text_list, embedding=embeddings, persist_directory=db_path)
+            store = Chroma(persist_directory=db_path, embedding_function=embeddings)
         else:
             store = Chroma.from_texts(texts=text_list, embedding=embeddings, persist_directory=db_path)
 
@@ -49,7 +69,6 @@ def build_character_db():
         tokenized = [list(seg["text"]) for seg in segments]
         bm25 = BM25Okapi(tokenized)
 
-        # 一起存进字典
         character_stores[char['character_id']] = {
             "vectorstore": store,
             "bm25": bm25,
@@ -184,3 +203,51 @@ if __name__ == "__main__":
 
     revised = generate_revised_text("yagami_light", test_text, report, stores)
     print("修改后:", revised)
+
+def parse_custom_character(user_text: str) -> dict:
+        """解析用户输入的自由文本，输出结构化角色档案 + 缺失字段候选选项"""
+
+        prompt = f"""你是一个角色档案解析器。用户会给你一段关于某个角色的自由描述。请你完成两件事：
+
+    1. 从描述中提取以下字段（能提取的填上，提取不到的填 null）：
+    - name: 角色名
+    - core_beliefs: 核心信念，字符串列表
+    - unbreakable: 绝对底线，字符串
+    - flexible: 灵活空间，字符串
+    - tone: 说话风格，字符串
+    - catchphrases: 口头禅，字符串列表
+    - forbidden: 禁止表达，字符串
+
+    2. 对于提取不到的字段，根据已有信息，生成3-4个候选选项供用户选择。
+
+    请以JSON格式输出，结构如下：
+    {{
+    "parsed": {{ ...已提取的字段... }},
+    "missing_fields": ["绝对底线", "灵活空间"],
+    "options": {{
+        "绝对底线": ["选项1", "选项2", "选项3"],
+        "灵活空间": ["选项1", "选项2", "选项3"]
+    }}
+    }}
+
+    用户输入：
+    {user_text}
+
+    只输出JSON，不要任何解释。"""
+
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=800
+        )
+
+        raw = response.choices[0].message.content.strip()
+
+        # 去掉可能的 markdown 代码块标记
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+
+        data = json.loads(raw)
+
+        return data
