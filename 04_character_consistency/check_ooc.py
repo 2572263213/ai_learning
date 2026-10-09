@@ -17,7 +17,9 @@ client = OpenAI(
 
 
 def build_character_db():
-    """读取 characters.json，为每个角色建立独立的向量库"""
+    """读取 characters.json，为每个角色建立独立的向量库和BM25索引"""
+    from rank_bm25 import BM25Okapi
+
     with open("characters.json", "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -26,28 +28,34 @@ def build_character_db():
     character_stores = {}
     for char in data["characters"]:
         db_path = f"./character_db/{char['character_id']}"
-        char_text = f"""
-        角色名：{char['name']}
-        核心信念：{'；'.join(char['core_beliefs'])}
-        绝对底线：{char['user_defined_traits']['unbreakable']}
-        灵活空间：{char['user_defined_traits']['flexible']}
-        说话风格：{char['speech_style']['tone']}
-        口头禅：{'、'.join(char['speech_style']['catchphrases'])}
-        禁止出现的表达：{'、'.join(char['speech_style']['forbidden'])}
-        """
+        segments = [
+            {"text": f"核心信念：{'；'.join(char['core_beliefs'])}", "source": "核心信念"},
+            {"text": f"绝对底线：{char['user_defined_traits']['unbreakable']}", "source": "绝对底线"},
+            {"text": f"灵活空间：{char['user_defined_traits']['flexible']}", "source": "灵活空间"},
+            {"text": f"说话风格：{char['speech_style']['tone']}", "source": "说话风格"},
+            {"text": f"口头禅：{'、'.join(char['speech_style']['catchphrases'])}", "source": "口头禅"},
+            {"text": f"禁止表达：{'、'.join(char['speech_style']['forbidden'])}", "source": "禁止表达"},
+        ]
+
+        # 建向量库
+        text_list = [seg["text"] for seg in segments]
+
         if os.path.exists(db_path):
-            store = Chroma(
-                persist_directory=db_path,
-                embedding_function=embeddings
-            )
+            store = Chroma.from_texts(texts=text_list, embedding=embeddings, persist_directory=db_path)
         else:
-            store = Chroma.from_texts(
-                texts=[char_text],
-                embedding=embeddings,
-                persist_directory=db_path
-            )
-        character_stores[char['character_id']] = store
-        print(f"已加载 {char['name']} 的向量库")
+            store = Chroma.from_texts(texts=text_list, embedding=embeddings, persist_directory=db_path)
+
+        # 建BM25索引
+        tokenized = [list(seg["text"]) for seg in segments]
+        bm25 = BM25Okapi(tokenized)
+
+        # 一起存进字典
+        character_stores[char['character_id']] = {
+            "vectorstore": store,
+            "bm25": bm25,
+            "segments": segments
+        }
+        print(f"已加载 {char['name']} 的向量库和BM25索引")
 
     return character_stores
 
@@ -58,14 +66,45 @@ class OOCReport(BaseModel):
     suggestion: str = Field(description="修改方向建议")
 
 
+def hybrid_retrieve(character_id: str, query: str, stores: dict, k: int = 3):
+    
+    """混合检索：向量 + BM25 + RRF融合"""
+    store_dict = stores[character_id]
+    vectorstore = store_dict["vectorstore"]
+    bm25 = store_dict["bm25"]
+    segments = store_dict["segments"]
+    source_map = {seg["text"]: seg["source"] for seg in segments}
+    # 1. 向量检索
+    vector_results = vectorstore.similarity_search(query, k=k)
+    vector_texts = [doc.page_content for doc in vector_results]
+
+    # 2. BM25检索
+    tokenized_query = list(query)
+    bm25_scores = bm25.get_scores(tokenized_query)
+    # 按分数从高到低排序，取前k个的索引
+    bm25_top_indices = sorted(range(len(bm25_scores)), key=lambda i: bm25_scores[i], reverse=True)[:k]
+    bm25_texts = [segments[i]["text"] for i in bm25_top_indices]
+
+    # 3. RRF融合
+    rrf_scores = {}
+    for rank, text in enumerate(vector_texts):
+        rrf_scores[text] = rrf_scores.get(text, 0) + 1 / (60 + rank + 1)
+    for rank, text in enumerate(bm25_texts):
+        rrf_scores[text] = rrf_scores.get(text, 0) + 1 / (60 + rank + 1)
+
+    # 按RRF得分排序，返回前k个
+    sorted_texts = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
+    return [{"text": text, "source": source_map[text]} for text, score in sorted_texts]
+
 def check_ooc(character_id: str, user_text: str, stores: dict) -> OOCReport:
     """检测一段文本中，指定角色是否OOC"""
     if character_id not in stores:
         raise ValueError(f"未找到角色：{character_id}")
 
-    retriever = stores[character_id].as_retriever(search_kwargs={"k": 1})
-    docs = retriever.invoke(user_text)
-    context = "\n\n".join([doc.page_content for doc in docs])
+    contexts = hybrid_retrieve(character_id, user_text, stores, k=3)
+    context = "\n\n".join([f"[{c['source']}] {c['text']}" for c in contexts])
+    
+    
 
     prompt = f"""你是一个同人文角色一致性审查员。请严格根据以下角色设定，判断用户文本中角色的言行是否符合设定。
 
@@ -102,9 +141,8 @@ def generate_revised_text(character_id: str, original_text: str, report: OOCRepo
     if character_id not in stores:
         raise ValueError(f"未找到角色：{character_id}")
 
-    retriever = stores[character_id].as_retriever(search_kwargs={"k": 1})
-    docs = retriever.invoke(original_text)
-    context = "\n\n".join([doc.page_content for doc in docs])
+    contexts = hybrid_retrieve(character_id, original_text, stores, k=3)
+    context = "\n\n".join([f"[{c['source']}] {c['text']}" for c in contexts])
 
     prompt = f"""你是一个同人文写作助手。请根据以下角色设定和修改方向，改写用户的原文，使其符合角色设定，同时保留作者原有的创作意图。
 
