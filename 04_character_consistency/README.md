@@ -33,7 +33,7 @@
 
 ## 在线演示
 
-[点击这里体验](你的魔搭公开链接)
+[点击这里体验](https://modelscope.cn/studios/Wu2572263213/character-consistency-checker)
 
 ## 本地运行
 
