@@ -114,6 +114,22 @@
         ],
         "forbidden": []
       }
+    },
+    {
+      "character_id": "吴伟锜",
+      "name": "吴伟锜",
+      "core_beliefs": null,
+      "user_defined_traits": {
+        "unbreakable": "不写无法维护的代码",
+        "flexible": "技术选型可以讨论"
+      },
+      "speech_style": {
+        "tone": null,
+        "catchphrases": null,
+        "forbidden": [
+          "绝对不可能实现"
+        ]
+      }
     }
   ]
 }

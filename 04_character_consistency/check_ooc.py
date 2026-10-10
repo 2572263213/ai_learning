@@ -81,7 +81,8 @@ def build_character_db():
 
 class OOCReport(BaseModel):
     consistency_score: int = Field(description="角色一致性评分，0-100分", ge=0, le=100)
-    ooc_risks: List[str] = Field(description="具体的OOC风险点列表，没有则返回空列表")
+    judgment_type: str = Field(description="判断类型：合规 / 剧情驱动 / 角色复杂性 / 真OOC")
+    ooc_risks: List[str] = Field(description="具体的风险点列表，没有则空列表")
     suggestion: str = Field(description="修改方向建议")
 
 
@@ -115,15 +116,13 @@ def hybrid_retrieve(character_id: str, query: str, stores: dict, k: int = 3):
     sorted_texts = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
     return [{"text": text, "source": source_map[text]} for text, score in sorted_texts]
 
-def check_ooc(character_id: str, user_text: str, stores: dict) -> OOCReport:
+def check_ooc(character_id: str, user_text: str, stores: dict, plot_context: str = "") -> OOCReport:
     """检测一段文本中，指定角色是否OOC"""
     if character_id not in stores:
         raise ValueError(f"未找到角色：{character_id}")
 
     contexts = hybrid_retrieve(character_id, user_text, stores, k=3)
     context = "\n\n".join([f"[{c['source']}] {c['text']}" for c in contexts])
-    
-    
 
     prompt = f"""你是一个同人文角色一致性审查员。请严格根据以下角色设定，判断用户文本中角色的言行是否符合设定。
 
@@ -133,8 +132,20 @@ def check_ooc(character_id: str, user_text: str, stores: dict) -> OOCReport:
 用户文本：
 {user_text}
 
+剧情上下文：
+{plot_context if plot_context else "（用户未提供剧情上下文）"}
+
+请按以下顺序判断：
+1. 角色言行是否符合设定？如果是，judgment_type 填「合规」。
+2. 如果不符合，是否可以用剧情上下文解释？能解释则填「剧情驱动」。
+3. 如果不符合且无法用剧情解释，是否属于表面/内里的差异（如策略性伪装、内心戏）？是则填「角色复杂性」。
+4. 以上都不符合，则填「真OOC」，并指出违反了哪条底线。
+
+如果用户没有提供剧情上下文，跳过第2步。
+
 请以JSON格式输出，包含以下字段：
 - consistency_score: 0-100的整数，表示角色一致性
+- judgment_type: 字符串，只能是「合规」「剧情驱动」「角色复杂性」「真OOC」之一
 - ooc_risks: 字符串列表，列出具体的OOC风险点，没有则空列表
 - suggestion: 修改方向建议，用1-2句话说明应该往哪个方向改，不要给出完整的改写文本
 只输出JSON，不要任何解释。"""
@@ -155,7 +166,7 @@ def check_ooc(character_id: str, user_text: str, stores: dict) -> OOCReport:
     return OOCReport(**data)
 
 
-def generate_revised_text(character_id: str, original_text: str, report: OOCReport, stores: dict) -> str:
+def generate_revised_text(character_id: str, original_text: str, report: OOCReport, stores: dict, plot_context: str = "") -> str:
     """基于OOC报告，生成修改后的文本"""
     if character_id not in stores:
         raise ValueError(f"未找到角色：{character_id}")
@@ -176,6 +187,9 @@ OOC风险点：
 
 修改方向：
 {report.suggestion}
+
+剧情上下文：
+{plot_context if plot_context else "（用户未提供剧情上下文）"}
 
 要求：
 - 保留作者原有的场景和叙事意图

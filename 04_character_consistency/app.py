@@ -20,10 +20,22 @@ stores = load_stores()
 with open("characters.json", "r", encoding="utf-8") as f:
     char_data = json.load(f)
 char_map = {char["name"]: char["character_id"] for char in char_data["characters"]}
-selected_name = st.selectbox("选择角色", list(char_map.keys()))
+
+def on_character_change():
+    # 版本号+1，让主文本框的key变新
+    st.session_state["input_version"] = st.session_state.get("input_version", 0) + 1
+    # 清掉旧报告
+    for key in ["last_report", "last_text", "last_character_id", "revised_text", "last_plot_context"]:
+        if key in st.session_state:
+            del st.session_state[key]
+
+selected_name = st.selectbox("选择角色", list(char_map.keys()), on_change=on_character_change)
 character_id = char_map[selected_name]
 
-user_text = st.text_area("粘贴你的同人文片段", height=200, key="main_text_area")
+version = st.session_state.get("input_version", 0)
+user_text = st.text_area("粘贴你的同人文片段", height=200, key=f"main_text_area_v{version}")
+
+plot_context = st.text_area("剧情上下文（可选）", height=80, key=f"plot_context_{selected_name}", placeholder="比如：夜神月刚刚发现弥海砂被杀害")
 
 # ===== 检测按钮 =====
 if st.button("🔍 检测OOC", type="primary"):
@@ -31,11 +43,12 @@ if st.button("🔍 检测OOC", type="primary"):
         st.warning("请先粘贴文本")
     else:
         with st.spinner("正在检测..."):
-            report = check_ooc(character_id, user_text, stores)
+            report = check_ooc(character_id, user_text, stores, plot_context)
         # 把结果存进 session_state
         st.session_state["last_report"] = report
         st.session_state["last_text"] = user_text
         st.session_state["last_character_id"] = character_id
+        st.session_state["last_plot_context"] = plot_context
         # 清掉上一次的改写结果，避免混淆
         if "revised_text" in st.session_state:
             del st.session_state["revised_text"]
@@ -46,12 +59,14 @@ if "last_report" in st.session_state:
 
     # 评分
     score = report.consistency_score
-    if score >= 80:
-        st.success(f"一致性评分：{score}/100 ✅")
-    elif score >= 50:
-        st.warning(f"一致性评分：{score}/100 ⚠️")
+    if report.judgment_type == "合规":
+        st.success(f"一致性评分：{score}/100 ✅ 判断：合规")
+    elif report.judgment_type == "剧情驱动":
+        st.info(f"一致性评分：{score}/100 📖 判断：剧情驱动偏离，请确认是否符合你的创作意图")
+    elif report.judgment_type == "角色复杂性":
+        st.info(f"一致性评分：{score}/100 🎭 判断：角色复杂性，请确认是否符合你的设定")
     else:
-        st.error(f"一致性评分：{score}/100 ❌")
+        st.error(f"一致性评分：{score}/100 ❌ 判断：真OOC")
 
     # 风险点
     if report.ooc_risks:
@@ -66,11 +81,12 @@ if "last_report" in st.session_state:
     # ===== 生成修改文本按钮（独立于检测按钮）=====
     if st.button("✨ 生成修改后的文本"):
         with st.spinner("正在改写..."):
-            revised = generate_revised_text(
+                revised = generate_revised_text(
                 st.session_state["last_character_id"],
                 st.session_state["last_text"],
                 report,
-                stores
+                stores,
+                st.session_state.get("last_plot_context", "")
             )
         st.session_state["revised_text"] = revised
 
@@ -172,6 +188,11 @@ with st.expander("➕ 添加自定义角色"):
             data["characters"].append(new_char)
             with open("characters.json", "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+
+            # 添加成功后，清掉解析结果和输入
+            for key in ["parsed_result", "new_char_input"]:
+                if key in st.session_state:
+                 del st.session_state[key]
 
             st.session_state["add_success"] = f"角色【{parsed['name']}】已添加！下拉菜单中已可选。"
             st.cache_resource.clear()
