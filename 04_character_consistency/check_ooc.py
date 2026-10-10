@@ -15,6 +15,8 @@ client = OpenAI(
     base_url="https://api.deepseek.com"
 )
 
+from sentence_transformers import CrossEncoder
+reranker = CrossEncoder("BAAI/bge-reranker-base")
 
 def build_character_db():
     """读取 characters.json，为每个角色建立独立的向量库和BM25索引"""
@@ -87,13 +89,13 @@ class OOCReport(BaseModel):
 
 
 def hybrid_retrieve(character_id: str, query: str, stores: dict, k: int = 3):
-    
     """混合检索：向量 + BM25 + RRF融合"""
     store_dict = stores[character_id]
     vectorstore = store_dict["vectorstore"]
     bm25 = store_dict["bm25"]
     segments = store_dict["segments"]
     source_map = {seg["text"]: seg["source"] for seg in segments}
+
     # 1. 向量检索
     vector_results = vectorstore.similarity_search(query, k=k)
     vector_texts = [doc.page_content for doc in vector_results]
@@ -113,8 +115,13 @@ def hybrid_retrieve(character_id: str, query: str, stores: dict, k: int = 3):
         rrf_scores[text] = rrf_scores.get(text, 0) + 1 / (60 + rank + 1)
 
     # 按RRF得分排序，返回前k个
-    sorted_texts = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
-    return [{"text": text, "source": source_map[text]} for text, score in sorted_texts]
+        sorted_texts = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
+
+    # Rerank 精排
+    pairs = [[query, text] for text, score in sorted_texts]
+    rerank_scores = reranker.predict(pairs)
+    reranked = sorted(zip([t for t, _ in sorted_texts], rerank_scores), key=lambda x: x[1], reverse=True)
+    return [{"text": text, "source": source_map[text]} for text, score in reranked[:k]]
 
 def check_ooc(character_id: str, user_text: str, stores: dict, plot_context: str = "") -> OOCReport:
     """检测一段文本中，指定角色是否OOC"""
