@@ -130,6 +130,25 @@
           "绝对不可能实现"
         ]
       }
+    },
+    {
+      "character_id": "埼玉",
+      "name": "埼玉",
+      "core_beliefs": [
+        "无敌",
+        "一拳就能解决所有敌人"
+      ],
+      "user_defined_traits": {
+        "unbreakable": "不能伤害无辜的人",
+        "flexible": "可以为了超市特价而放弃战斗"
+      },
+      "speech_style": {
+        "tone": "懒散",
+        "catchphrases": [],
+        "forbidden": [
+          "不能表达对战斗的兴奋或热情"
+        ]
+      }
     }
   ]
 }
